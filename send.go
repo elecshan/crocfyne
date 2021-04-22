@@ -15,14 +15,27 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
 func sendTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 	fileLabel := widget.NewLabel("Pick a file to send")
-	filePath := binding.NewString()
-	fileEntry := widget.NewEntryWithData(filePath)
+	// filePath := binding.NewString()
+	// fileEntry := widget.NewEntryWithData(filePath)
+
+	boxHolder := container.NewVBox()
+	// fileData := binding.BindStringList(&[]string{})
+	// fileList := widget.NewListWithData(fileData,
+	// 	func() fyne.CanvasObject {
+	// 		// return widget.NewLabel("template")
+	// 		form := &widget.Form{Items: []*widget.FormItem{{Text: "", Widget: widget.NewLabel("text string")}}}
+	// 		return form
+	// 	},
+	// 	func(i binding.DataItem, o fyne.CanvasObject) {
+	// 		o.(*widget.Label).Bind(i.(binding.String))
+	// 	})
 
 	code := binding.NewString()
 	codeEntry := widget.NewEntryWithData(code)
@@ -39,8 +52,9 @@ func sendTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 	statusLabel := widget.NewLabelWithData(status)
 	statusLabel.Hide()
 
-	var fileList []string
+	fileEntries := make(map[string]*fyne.Container)
 	var fileButton, sendButton, cancelButton *widget.Button
+	// showWidgetHolder := container.NewVBox()
 	cancelChan := make(chan bool)
 
 	cancelButton = widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
@@ -65,8 +79,20 @@ func sendTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 				fpath := tfile.Name()
 				logger.Tracef("Android URL (%s), copied to internal cache (%s)", f.URI().Name(), fpath)
 
-				filePath.Set(fpath)
-				fileList = append(fileList, fpath)
+				// filePath.Set(fpath)
+				// fileData.Append(fpath)
+				newEntry := container.NewHBox(widget.NewLabel(filepath.Base(fpath)), layout.NewSpacer(), widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
+					if !sendButton.Disabled() {
+						if fe, ok := fileEntries[fpath]; ok {
+							boxHolder.Remove(fe)
+							os.Remove(fpath)
+							logger.Tracef("Removed file from internal cache: %s", fpath)
+							delete(fileEntries, fpath)
+						}
+					}
+				}))
+				fileEntries[fpath] = newEntry
+				boxHolder.Add(newEntry)
 			}
 		}, w)
 	})
@@ -75,10 +101,11 @@ func sendTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 		progBar.Hide()
 		progBar.SetValue(0)
 
-		for idx, file := range fileList {
+		for file, entry := range fileEntries {
+			boxHolder.Remove(entry)
 			os.Remove(file)
 			logger.Tracef("Remove file from internal cache: %s", file)
-			fileList = append(fileList[:idx], fileList[idx+1:]...)
+			delete(fileEntries, file)
 		}
 
 		if codeEntry.Text == randomCode {
@@ -92,12 +119,13 @@ func sendTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 	}
 
 	sendButton = widget.NewButtonWithIcon("Send", theme.MailSendIcon(), func() {
-		if len(fileList) < 1 {
+		if len(fileEntries) < 1 {
 			logger.Error("No file to send")
 			return
 		}
 
 		fileButton.Disable()
+		status.Set("")
 		sender, err := croc.New(croc.Options{
 			IsSender:       true,
 			SharedSecret:   randomCode,
@@ -149,7 +177,13 @@ func sendTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 			cancelButton.Enable()
 			sendButton.Disable()
 			statusLabel.Show()
-			serr := sender.Send(croc.TransferOptions{PathToFiles: fileList})
+
+			files := []string{}
+			for f := range fileEntries {
+				files = append(files, f)
+			}
+
+			serr := sender.Send(croc.TransferOptions{PathToFiles: files})
 
 			doneChan <- true
 
@@ -170,10 +204,11 @@ func sendTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 	})
 
 	return container.NewTabItemWithIcon("send", theme.MailSendIcon(),
-		container.NewVBox(container.NewHBox(fileLabel, fileEntry, fileButton),
+		container.NewVBox(container.NewHBox(fileLabel, fileButton),
 			codeForm,
 			sendButton,
 			cancelButton,
 			progBar,
+			boxHolder,
 			statusLabel))
 }
