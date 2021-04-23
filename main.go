@@ -13,7 +13,7 @@ func main() {
 	w.SetContent(container.NewBorder(nil, nil, nil, nil,
 		container.NewAppTabs(
 			sendTabItem(a, w),
-			receiveTabItem())))
+			receiveTabItem(a, w))))
 
 	a.Preferences().SetString("relayAddress", a.Preferences().StringWithFallback("relayAddress", "croc.schollz.com:9009"))
 	a.Preferences().SetString("relayPorts", a.Preferences().StringWithFallback("relayPorts", "9009,9010,9011,9012,9013"))
