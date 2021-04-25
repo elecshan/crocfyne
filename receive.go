@@ -47,10 +47,12 @@ func receiveTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 	pathForm := widget.NewForm(&widget.FormItem{Text: "Select a folder", Widget: pathContainer})
 
 	var recvButton, cancelButton *widget.Button
+	recvFiles := make([]string, 10)
 
 	cancelChan := make(chan bool)
 
 	cancelButton = widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
+		logger.Info("Press cancelButton...")
 		cancelChan <- true
 	})
 	cancelButton.Disable()
@@ -62,15 +64,15 @@ func receiveTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 			IsSender:       false,
 			SharedSecret:   codeEntry.Text,
 			Debug:          false,
-			RelayAddress:   a.Preferences().String("relay-address"),
-			RelayPassword:  a.Preferences().String("relay-password"),
+			RelayAddress:   a.Preferences().String("relayAddress"),
+			RelayPassword:  a.Preferences().String("relayPassword"),
 			Stdout:         false,
 			NoPrompt:       true,
-			DisableLocal:   a.Preferences().Bool("disable-local"),
-			NoMultiplexing: a.Preferences().Bool("disable-multiplexing"),
-			OnlyLocal:      a.Preferences().Bool("force-local"),
-			NoCompress:     a.Preferences().Bool("disable-compression"),
-			Curve:          a.Preferences().String("pake-curve"),
+			DisableLocal:   a.Preferences().Bool("disableLocal"),
+			NoMultiplexing: a.Preferences().Bool("noMultiplexing"),
+			OnlyLocal:      a.Preferences().Bool("forceLocal"),
+			NoCompress:     a.Preferences().Bool("disableCompression"),
+			Curve:          a.Preferences().String("pakeCurve"),
 		})
 		if err != nil {
 			logger.Errorf("Receive setup error: %s", err.Error())
@@ -90,9 +92,10 @@ func receiveTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 						num := receiver.FilesToTransferCurrentNum
 						file := receiver.FilesToTransfer[num]
 						fname := filepath.Base(file.Name)
+						recvFiles = append(recvFiles, fname)
 						progBar.Max = float64(file.Size)
 						progBar.SetValue(float64(receiver.TotalSent))
-						status.Set("Download file " + fname)
+						status.Set("Downloading file: " + fname)
 					}
 				case <-doneChan:
 					ticker.Stop()
@@ -101,25 +104,36 @@ func receiveTabItem(a fyne.App, w fyne.Window) *container.TabItem {
 			}
 		}()
 
+		go func() {
+			<-cancelChan
+			doneChan <- true
+			status.Set("Download cancelled.")
+		}()
+
 		err = os.Chdir(pathEntry.Text)
 		if err != nil {
 			logger.Errorf("Change directory error: %s", err.Error())
 		}
-		status.Set("")
-		err = receiver.Receive()
-		doneChan <- true
-		progBar.SetValue(0)
-		progBar.Hide()
 
-		if err != nil {
-			logger.Errorf("Download file failed: %s", err.Error())
-		} else {
-			// filepath.WalkDir(recvDir, func(path string, info fs.DirEntry, err error) error {
-			// 	if !info.IsDir() {
+		go func() {
+			status.Set("")
+			recvButton.Disable()
+			// cancelButton.Enable()
+			progBar.Show()
+			statusLabel.Show()
 
-			// 	}
-			// })
-		}
+			err = receiver.Receive()
+			doneChan <- true
+
+			progBar.SetValue(0)
+			progBar.Hide()
+			recvButton.Enable()
+			cancelButton.Disable()
+
+			if err != nil {
+				logger.Errorf("Download file failed: %s", err.Error())
+			}
+		}()
 	})
 
 	return container.NewTabItemWithIcon("receive", theme.DownloadIcon(),
